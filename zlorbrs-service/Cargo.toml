@@ -1,0 +1,7 @@
+[package]
+name = "zlorbrs-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+zlorbrs-lib = { path = "../zlorbrs-lib"}

@@ -1,0 +1,3 @@
+[workspace]
+members = ["zlorbrs-ctl", "zlorbrs-lib", "zlorbrs-service"]
+resolver = "3"
