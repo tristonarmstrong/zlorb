@@ -1,9 +1,9 @@
-use std::fs;
+use std::{fs, io};
 
-use log::{debug, info};
+use log::info;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     name: String,          // repo identifier
     path: String,          // absolute path to repo
@@ -13,7 +13,16 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn load(repo_name: String) {
+    pub fn new(repo_name: String) -> Self {
+        Self {
+            name: repo_name,
+            path: String::from("TODO"),
+            branch: String::from("master"),
+            remote: String::from("origin"),
+            build_command: String::from("bun run build"),
+        }
+    }
+    pub fn load(repo_name: String) -> Result<String, io::Error> {
         info!("Loading config for {}", repo_name);
         let contents =
             fs::read_to_string(format!("/etc/zlorbrs/configs/{}", repo_name)).unwrap_or_default();
