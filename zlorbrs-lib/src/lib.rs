@@ -1,4 +1,4 @@
-mod config;
+pub mod config;
 
 use crate::config::Config;
 use log::error;
@@ -11,6 +11,7 @@ use std::{
 pub fn remove_repo(repo_name: String) {
     println!("Removing repo: {}", repo_name);
 }
+
 pub fn add_repo() {
     let current_dir_pathbuf = env::current_dir().unwrap();
 
@@ -25,6 +26,7 @@ pub fn add_repo() {
         error!("The configs directory contains nothing");
         return;
     }
+
     let found_config = current_configs
         .unwrap()
         .find(|x| x.1.as_ref().unwrap().file_name() == dir_name.unwrap());

@@ -1,7 +1,5 @@
-use std::fs::ReadDir;
-
 use clap::{Parser, Subcommand};
-use zlorbrs_lib::{add_repo, get_all_repos, list_repos, remove_repo, start_daemon};
+use zlorbrs_lib::{add_repo, list_repos, remove_repo, start_daemon};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
