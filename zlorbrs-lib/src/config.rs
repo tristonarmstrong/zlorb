@@ -3,7 +3,7 @@ use std::{fs, io};
 use log::info;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     pub name: String,          // repo identifier
     pub path: String,          // absolute path to repo
@@ -17,7 +17,20 @@ impl Config {
         Self {
             name: repo_name,
             path: String::from(std::env::current_dir().unwrap().to_str().unwrap()),
-            branch: String::from("master"),
+            branch: String::from(
+                git2::Branch::wrap(
+                    git2::Repository::open(std::env::current_dir().unwrap().to_str().unwrap())
+                        .unwrap()
+                        .references()
+                        .unwrap()
+                        .next()
+                        .unwrap()
+                        .unwrap(),
+                )
+                .name()
+                .unwrap()
+                .unwrap(),
+            ),
             remote: String::from("origin"),
             build_command: String::from("bun run build"),
         }
