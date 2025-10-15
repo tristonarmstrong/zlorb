@@ -1,4 +1,4 @@
-use git2::{BranchType, FetchOptions, Oid, Repository};
+use git2::{BranchType, Error, Oid, Repository};
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -43,19 +43,10 @@ fn main() {
                 fs::read_to_string(format!("{}/config.json", item.path().to_str().unwrap()))
                     .unwrap();
             let config_json = serde_json::from_str::<Config>(&file_contents).unwrap();
-            let repo = Repository::open(config_json.path).expect("Failed to open repo");
+            let repo = Repository::open(config_json.clone().path).expect("Failed to open repo");
 
-            let mut remote = repo.find_remote("origin").expect("Remote not found");
-            let mut fetch_options = FetchOptions::new();
-
-            match remote.fetch(&["master"], Some(&mut fetch_options), None) {
-                Ok(x) => {
-                    println!("Fetched remote: {:?}", x);
-                }
-                Err(e) => {
-                    println!("failed to fetch remote: {}", e);
-                }
-            };
+            // get remote and fetch
+            let _ = fast_forward(&repo, &config_json);
 
             // check if repo has updates
             let local_branch = repo
@@ -66,9 +57,8 @@ fn main() {
                 .target()
                 .expect("Local branch has no target");
 
-            let remote_branch_name = "origin/main";
             let remote_ref = repo
-                .resolve_reference_from_short_name(remote_branch_name)
+                .resolve_reference_from_short_name(&format!("origin/{}", config_json.branch))
                 .expect("Remote ref not found");
             let remote_iod: Oid = remote_ref.target().expect("Remote ref has no target");
 
@@ -89,4 +79,35 @@ fn main() {
 
 fn take_a_nap(sleep_time: u64) {
     std::thread::sleep(std::time::Duration::from_secs(sleep_time));
+}
+
+fn fast_forward(repo: &Repository, config_json: &Config) -> Result<(), git2::Error> {
+    let mut remote = repo.find_remote("origin").expect("Remote not found");
+    match remote.fetch(&[config_json.branch.clone()], None, None) {
+        Ok(x) => {
+            println!("Fetched remote: {:#?}", x);
+        }
+        Err(e) => {
+            println!("failed to fetch remote: {}", e);
+        }
+    };
+
+    let fetch_head = repo.find_reference("FETCH_HEAD").unwrap();
+    let fetch_commit = repo.reference_to_annotated_commit(&fetch_head).unwrap();
+    let analysis = repo.merge_analysis(&[&fetch_commit]).unwrap();
+
+    if analysis.0.is_up_to_date() {
+        Ok(())
+    } else if analysis.0.is_fast_forward() {
+        let refname = format!("refs/heads/{}", config_json.branch);
+        let mut reference = repo.find_reference(&refname).unwrap();
+        reference
+            .set_target(fetch_commit.id(), "Fast-Forward")
+            .unwrap();
+        repo.set_head(&refname).unwrap();
+        repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))
+    } else {
+        error!("Fast-forward only!");
+        Err(Error::from_str("Fast-forward only!"))
+    }
 }
