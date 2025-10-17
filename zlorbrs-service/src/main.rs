@@ -120,7 +120,7 @@ fn kick_off_build(config_json: &Config) {
             );
         }
 
-        let bun_install_handle = std::process::Command::new("bun")
+        let bun_install_handle = std::process::Command::new("/root/.bun/bin/bun")
             .arg("i")
             .stdout(Stdio::piped())
             .output();
@@ -133,7 +133,7 @@ fn kick_off_build(config_json: &Config) {
         }
 
         // TODO this needs to be populated via config
-        let bun_handle = std::process::Command::new("bun")
+        let bun_handle = std::process::Command::new("/root/.bun/bin/bun")
             .arg("run")
             .arg("build")
             .stdout(Stdio::piped())
