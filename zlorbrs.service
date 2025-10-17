@@ -6,6 +6,7 @@ After=network.target
 ExecStart=zlorbrs-service
 Type=simple
 Restart=always
+Environment="RUST_LOG=zlorbrs_service"
 
 
 [Install]
