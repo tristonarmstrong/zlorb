@@ -1,4 +1,4 @@
-use git2::{BranchType, Error, Oid, Remote, Repository};
+use git2::{BranchType, Cred, Error, FetchOptions, Oid, Remote, RemoteCallbacks, Repository};
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use std::{fs, io::Error as IoError, process::Stdio};
@@ -177,9 +177,23 @@ fn fast_forward(repo: &Repository, config_json: &Config) -> Result<(), git2::Err
         return Err(Error::from_str("Remote Not Found"));
     }
 
-    let fetch_res = remote
-        .unwrap()
-        .fetch(&[config_json.branch.clone()], None, None);
+    // setup credentails
+    let mut callbacks = RemoteCallbacks::new();
+    callbacks.credentials(|_, _, _| {
+        Cred::userpass_plaintext(
+            // TODO: use credential helper instead
+            "USERNAME", "PASSWORD",
+        )
+    });
+    // apply credentials to fetch options
+    let mut fetch_options = FetchOptions::new();
+    fetch_options.remote_callbacks(callbacks);
+
+    let fetch_res = remote.unwrap().fetch(
+        &[config_json.branch.clone()],
+        Some(&mut fetch_options),
+        None,
+    );
     if fetch_res.is_err() {
         error!("failed to fetch remote: {}", fetch_res.err().unwrap());
     }
