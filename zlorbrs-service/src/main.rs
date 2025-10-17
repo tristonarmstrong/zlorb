@@ -1,7 +1,7 @@
 use git2::{BranchType, Error, Oid, Remote, Repository};
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
-use std::{fs, io::Error as IoError};
+use std::{fs, io::Error as IoError, process::Stdio};
 use zlorbrs_lib::config::Config;
 
 #[derive(Serialize, Deserialize, Default, Debug)]
@@ -51,7 +51,6 @@ fn main() -> Result<(), IoError> {
             take_a_nap(config_data.sleep_time);
         }
 
-        // get config directory and validate its existance
         let dir_path = format!(
             "{}/.config/zlorbrs/configs",
             std::env::home_dir().unwrap().to_str().unwrap()
@@ -61,50 +60,100 @@ fn main() -> Result<(), IoError> {
             error!("There are no configuration files created yet");
             continue;
         }
-        // </end> get config directory and validate its existance
 
-        // Iterate the items in the configs directory
         directories.unwrap().for_each(|item_wrap| {
-            info!(" ");
-            // read the configs of each item
             let item = item_wrap.unwrap();
             let file_contents =
                 fs::read_to_string(format!("{}/config.json", item.path().to_str().unwrap()))
                     .unwrap();
             let config_json = serde_json::from_str::<Config>(&file_contents).unwrap();
+
+            info!(" "); // this just makes logging easier to read
             info!("================ {} ===============", config_json.name);
 
             let repo = Repository::open(config_json.clone().path).expect("Failed to open repo");
 
-            // check if repo has updates
+            // ======= Fetching ==========
+            // fast forward any changes if there is one
             let local_branch = repo
                 .find_branch(&config_json.branch, BranchType::Local)
                 .expect("Local branch not found");
-            let local_iod_before: Oid = local_branch
+            let local_iod: Oid = local_branch
                 .get()
                 .target()
                 .expect("Local branch has no target");
-            debug!("before iod: {local_iod_before}");
+            debug!("before iod: {local_iod}");
 
-            // get remote and fetch
             let _ = fast_forward(&repo, &config_json);
 
-            // check if repo has updates
-            let local_iod_after: Oid = local_branch
-                .get()
-                .target()
-                .expect("Local branch has no target");
-            debug!("after iod: {local_iod_after}");
+            let remote_ref = repo
+                .resolve_reference_from_short_name(&format!("origin/{}", config_json.branch))
+                .expect("Remote ref not found");
+            let remote_iod: Oid = remote_ref.target().expect("Remote ref has no target");
+            debug!("remote iod: {remote_iod}");
+            // ======= END ==========
 
-            if local_iod_before != local_iod_after {
-                kick_off_build();
+            let dist_dir_exists = match std::fs::read_dir(format!("{}/dist", config_json.path)) {
+                Ok(_) => true,
+                Err(_) => false,
+            };
+
+            if !dist_dir_exists || local_iod != remote_iod {
+                kick_off_build(&config_json);
             }
         });
     }
 }
 
-fn kick_off_build() {
-    std::process::Command::new("ls");
+fn kick_off_build(config_json: &Config) {
+    info!("Looks like we got some build pending, lets do that!");
+    let path = format!("{}", config_json.path);
+    debug!("Running build for: {}", config_json.path);
+
+    let handle = std::thread::spawn(move || {
+        let _ = std::env::set_current_dir(path);
+
+        let bun_install_handle = std::process::Command::new("bun")
+            .arg("i")
+            .stdout(Stdio::piped())
+            .output();
+        if bun_install_handle.is_err() {
+            error!("{}", bun_install_handle.err().unwrap());
+            return;
+        }
+
+        // TODO this needs to be populated via config
+        let bun_handle = std::process::Command::new("bun")
+            .arg("run")
+            .arg("build")
+            .stdout(Stdio::piped())
+            .output();
+
+        match bun_handle {
+            Ok(h) => {
+                debug!("got status: {:?}", h.status);
+                match h.status.code() {
+                    Some(0) => {
+                        // create util split_to_debug_lines
+                        let human_readable = String::from_utf8(h.stdout).unwrap();
+                        let split_readable: Vec<&str> = human_readable.split("\n").collect();
+                        for line in split_readable {
+                            info!("build succeed: {:#?}", line);
+                        }
+                    }
+                    Some(1) => {
+                        error!("build error: {:?}", h.stderr);
+                    }
+                    _ => {}
+                };
+            }
+            Err(_) => {
+                error!("{}", bun_handle.err().unwrap());
+            }
+        };
+    });
+
+    handle.join().unwrap();
 }
 
 fn take_a_nap(sleep_time: u64) {
