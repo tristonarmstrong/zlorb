@@ -18,7 +18,7 @@ fn setup_config_stuff() -> Result<ServiceConfig, ()> {
     let config_file = match std::fs::read_to_string(path_to_config_file_for_service.clone()) {
         Ok(a) => a,
         Err(e) => {
-            error!("{e}");
+            error!("Failure reading config file to string: {e}");
             error!(
                 "You need to ensure you create the config file @ {path_to_config_file_for_service}"
             );
@@ -111,14 +111,24 @@ fn kick_off_build(config_json: &Config) {
     debug!("Running build for: {}", config_json.path);
 
     let handle = std::thread::spawn(move || {
-        let _ = std::env::set_current_dir(path);
+        let set_dir_res = std::env::set_current_dir(path.clone());
+        if set_dir_res.is_err() {
+            error!(
+                "Failed to set the current directory: {}\nDir: {}",
+                set_dir_res.err().unwrap(),
+                path
+            );
+        }
 
         let bun_install_handle = std::process::Command::new("bun")
             .arg("i")
             .stdout(Stdio::piped())
             .output();
         if bun_install_handle.is_err() {
-            error!("{}", bun_install_handle.err().unwrap());
+            error!(
+                "Bun install handle failure: {}",
+                bun_install_handle.err().unwrap()
+            );
             return;
         }
 
@@ -147,8 +157,8 @@ fn kick_off_build(config_json: &Config) {
                     _ => {}
                 };
             }
-            Err(_) => {
-                error!("{}", bun_handle.err().unwrap());
+            Err(e) => {
+                error!("Total failure of bun_handle: {}", e);
             }
         };
     });
