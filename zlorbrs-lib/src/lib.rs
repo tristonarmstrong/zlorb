@@ -1,7 +1,7 @@
 pub mod config;
 
 use crate::config::Config;
-use log::error;
+use log::{error, info};
 use std::{
     env::{self},
     fs::{self, ReadDir},
@@ -9,7 +9,21 @@ use std::{
 };
 
 pub fn remove_repo(repo_name: String) {
-    println!("Removing repo: {}", repo_name);
+    let repos = get_all_repos();
+    let mut mapped_repos = repos.unwrap().map(|item| item.1.unwrap().path());
+    let found = mapped_repos.find(|item| item.file_name().unwrap().to_str().unwrap() == &repo_name);
+    if found.is_none() {
+        error!("Theres no config found with name: {}", repo_name);
+        return;
+    }
+    match std::fs::remove_dir_all(found.unwrap()) {
+        Ok(_) => {
+            info!("Removed config for: {}", repo_name);
+        }
+        Err(e) => {
+            error!("Unable to remove config for {} because: {:?}", repo_name, e);
+        }
+    };
 }
 
 pub fn add_repo() {
@@ -53,7 +67,7 @@ pub fn list_repos() {
     println!("{:#?}", Vec::from_iter(mapped_repos));
 }
 
-pub fn get_all_repos() -> Option<Enumerate<ReadDir>> {
+fn get_home_dir() -> String {
     let home_dir = match std::env::home_dir() {
         Some(x) => String::from(x.to_str().unwrap()),
         None => {
@@ -61,6 +75,11 @@ pub fn get_all_repos() -> Option<Enumerate<ReadDir>> {
             panic!("Program exited due to previous error");
         }
     };
+    home_dir
+}
+
+pub fn get_all_repos() -> Option<Enumerate<ReadDir>> {
+    let home_dir = get_home_dir();
 
     let config_dir = format!("{}/.config/zlorbrs/configs", home_dir);
 
