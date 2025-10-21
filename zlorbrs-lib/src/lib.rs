@@ -49,19 +49,8 @@ pub fn list_repos() {
         return;
     }
 
-    let mut count = 0;
-    repos.unwrap().for_each(|item| {
-        if item.1.is_err() {
-            error!("Failed to read directory");
-            return;
-        }
-        let entry = item.1.unwrap();
-        println!("Repo {}: {:?}", count + 1, entry.path());
-        count += 1;
-    });
-    if count < 1 {
-        error!("No configurations found");
-    }
+    let mapped_repos = repos.unwrap().map(|item| item.1.unwrap().path());
+    println!("{:#?}", Vec::from_iter(mapped_repos));
 }
 
 pub fn get_all_repos() -> Option<Enumerate<ReadDir>> {
