@@ -3,7 +3,7 @@ pub mod config;
 use crate::config::Config;
 use log::error;
 use std::{
-    env,
+    env::{self},
     fs::{self, ReadDir},
     iter::Enumerate,
 };
@@ -39,37 +39,66 @@ pub fn add_repo() {
         return;
     }
 
-    Config::load(String::from(dir_name.unwrap().to_str().unwrap()));
+    let _ = Config::load(String::from(dir_name.unwrap().to_str().unwrap()));
 }
 
 pub fn list_repos() {
-    let repos: Vec<_> = get_all_repos().unwrap().collect();
-    let repo_count = repos.len();
-    if repo_count < 1 as usize {
-        println!("No configurations found");
+    let repos = get_all_repos();
+    if repos.is_none() {
+        error!("No configurations found");
         return;
     }
-    repos.iter().for_each(|x| println!("{:?}", x.1));
+
+    let mut count = 0;
+    repos.unwrap().for_each(|item| {
+        if item.1.is_err() {
+            error!("Failed to read directory");
+            return;
+        }
+        let entry = item.1.unwrap();
+        println!("Repo {}: {:?}", count + 1, entry.path());
+        count += 1;
+    });
+    if count < 1 {
+        error!("No configurations found");
+    }
 }
 
 pub fn get_all_repos() -> Option<Enumerate<ReadDir>> {
-    let config_dir = format!(
-        "{}/.config/zlorbrs/configs",
-        std::env::home_dir().unwrap().to_str().unwrap()
-    );
-    match fs::read_dir(config_dir.clone()) {
-        Ok(dir) => Some(dir.enumerate()),
-        Err(_) => {
-            error!("Config directory doesnt exist. Creating it now...");
-            match fs::create_dir_all(config_dir.clone()) {
-                Ok(_) => Some(fs::read_dir(config_dir).unwrap().enumerate()),
-                Err(err) => {
-                    error!("Failed to create config directory for reason: {}", err);
-                    panic!("Exiting due to previous error")
-                }
-            }
+    let home_dir = match std::env::home_dir() {
+        Some(x) => String::from(x.to_str().unwrap()),
+        None => {
+            error!("Failed to get the home directory");
+            panic!("Program exited due to previous error");
         }
+    };
+
+    let config_dir = format!("{}/.config/zlorbrs/configs", home_dir);
+
+    if let Ok(dir) = fs::read_dir(config_dir.clone()) {
+        return Some(dir.enumerate());
     }
+
+    error!("Config directory doesnt exist. Creating it now...");
+    let create_dir_results = fs::create_dir_all(config_dir.clone());
+    if let Ok(_) = create_dir_results {
+        let files = fs::read_dir(config_dir);
+        if files.is_err() {
+            error!(
+                "Failed to create config directory for reason: {}",
+                files.err().unwrap()
+            );
+            panic!("Exiting due to previous error")
+        }
+        let files_unwrapped = files.unwrap();
+        return Some(files_unwrapped.enumerate());
+    }
+
+    error!(
+        "Failed to create config directory for reason: {}",
+        create_dir_results.err().unwrap()
+    );
+    panic!("Exiting due to previous error")
 }
 
 pub fn start_daemon() {
