@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use zlorbrs_lib::{add_repo, list_repos, remove_repo, start_daemon};
+use zlorbrs_lib::{add_repo, list_repos, remove_repo};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -28,7 +28,9 @@ fn main() {
     match args.cmd {
         Commands::Add => add_repo(),
         Commands::List => list_repos(),
-        Commands::Start => start_daemon(),
+        Commands::Start => {
+            // start daemon
+        }
         Commands::Remove { repo_name } => remove_repo(repo_name),
     }
 }
