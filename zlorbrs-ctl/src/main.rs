@@ -1,5 +1,6 @@
+mod utils;
+use crate::utils::{daemon, repo};
 use clap::{Parser, Subcommand};
-use zlorbrs_lib::{add_repo, list_repos, remove_repo};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -26,11 +27,9 @@ fn main() {
     let args = Args::parse();
 
     match args.cmd {
-        Commands::Add => add_repo(),
-        Commands::List => list_repos(),
-        Commands::Start => {
-            // start daemon
-        }
-        Commands::Remove { repo_name } => remove_repo(repo_name),
+        Commands::Add => repo::add(),
+        Commands::List => repo::list(),
+        Commands::Start => daemon::start(),
+        Commands::Remove { repo_name } => repo::remove(repo_name),
     }
 }
