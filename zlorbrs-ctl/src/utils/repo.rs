@@ -8,18 +8,47 @@ use zlorbrs_lib::{config::Config, get_home_dir};
 
 /// .
 ///
-/// # Panics
+/// # Removes a repo
 ///
-/// Panics if .
+/// Looks in the repo config directory and if `repo_name` is
+/// found, will attempt to delete  the repo config
 pub(crate) fn remove(repo_name: String) {
     let repos = self::get_all();
-    let mut mapped_repos = repos.unwrap().map(|item| item.1.unwrap().path());
-    let found = mapped_repos.find(|item| item.file_name().unwrap().to_str().unwrap() == &repo_name);
+    if repos.is_none() {
+        error!("There are no repos to remove");
+        return;
+    }
+    let repos = repos.unwrap();
+    let mut mapped_repos = repos.map(|item| {
+        let x = item.1;
+        if x.is_err() {
+            error!("Failed to map repos to good type.. aborting");
+            panic!("Panic due to previous error");
+        }
+        let x = x.unwrap();
+        x.path()
+    });
+
+    let found = mapped_repos.find(|item| {
+        let file_name = item.file_name();
+        if file_name.is_none() {
+            return false;
+        }
+        let file_name = file_name.unwrap();
+        let file_name = file_name.to_str();
+        if file_name.is_none() {
+            return false;
+        }
+        let file_name = file_name.unwrap();
+        return file_name == &repo_name;
+    });
+
     if found.is_none() {
         error!("Theres no config found with name: {}", repo_name);
         return;
     }
-    match std::fs::remove_dir_all(found.unwrap()) {
+    let found = found.unwrap();
+    match std::fs::remove_dir_all(found) {
         Ok(_) => {
             info!("Removed config for: {}", repo_name);
         }
