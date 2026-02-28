@@ -221,3 +221,71 @@ fn fast_forward(repo: &Repository, config_json: &Config) -> Result<(), git2::Err
     error!("Fast-forward only!");
     Err(Error::from_str("Fast-forward only!"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::path::PathBuf;
+    use zlorbrs_lib::shared_test_utils::ENV_MUTEX;
+
+    struct TestEnv {
+        home_dir: PathBuf,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for TestEnv {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.home_dir);
+        }
+    }
+
+    fn setup_test_env(test_name: &str) -> TestEnv {
+        let lock = ENV_MUTEX.lock().unwrap();
+        
+        // Setup mocked HOME directory
+        let mut home_dir = env::temp_dir();
+        home_dir.push(format!("zlorbrs_svc_home_{}", test_name));
+        let _ = fs::remove_dir_all(&home_dir);
+        fs::create_dir_all(&home_dir).unwrap();
+        
+        let home_dir = home_dir.canonicalize().unwrap_or(home_dir);
+
+        unsafe {
+            env::set_var("HOME", home_dir.to_str().unwrap());
+        }
+
+        TestEnv {
+            home_dir,
+            _lock: lock,
+        }
+    }
+
+    #[test]
+    fn test_setup_config_stuff_success() {
+        let env = setup_test_env("svc_config_success");
+        
+        // Create the expected configuration file
+        let config_dir = env.home_dir.join(".config/zlorbrs");
+        fs::create_dir_all(&config_dir).unwrap();
+        
+        let config_file_path = config_dir.join("service-config.json");
+        let valid_json = r#"{ "sleep_time": 42 }"#;
+        fs::write(config_file_path, valid_json).unwrap();
+
+        let result = setup_config_stuff();
+        assert!(result.is_ok());
+        
+        let config = result.unwrap();
+        assert_eq!(config.sleep_time, 42);
+    }
+
+    #[test]
+    fn test_setup_config_stuff_missing() {
+        let _env = setup_test_env("svc_config_missing");
+        
+        // Do not create the file. setup_config_stuff should fail gracefully.
+        let result = setup_config_stuff();
+        assert!(result.is_err());
+    }
+}
