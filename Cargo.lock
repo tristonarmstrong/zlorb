@@ -873,7 +873,6 @@ dependencies = [
  "clap",
  "env_logger",
  "log",
- "serde_json",
  "zlorbrs-lib",
 ]
 

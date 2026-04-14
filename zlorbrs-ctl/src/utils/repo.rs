@@ -99,7 +99,7 @@ pub(crate) fn get_all() -> Option<Enumerate<ReadDir>> {
 /// # Panics
 ///
 /// Panics if .
-pub(crate) fn add(project_type: String, run_command: Option<String>) {
+pub(crate) fn add() {
     let current_dir_pathbuf = env::current_dir().unwrap();
 
     let dir_name = current_dir_pathbuf.file_name();
@@ -126,37 +126,7 @@ pub(crate) fn add(project_type: String, run_command: Option<String>) {
         return;
     }
 
-    let repo_name = String::from(dir_name.unwrap().to_str().unwrap());
-    let directory_path = format!(
-        "{}/.config/zlorbrs/configs/{}",
-        get_home_dir(),
-        repo_name
-    );
-    let file_path = format!("{directory_path}/config.json");
-
-    match fs::create_dir_all(directory_path.clone()) {
-        Ok(_) => {
-            info!("Created config directory at: {directory_path}")
-        }
-        Err(e) => {
-            error!("Failed to create config directory: {e}");
-            return;
-        }
-    };
-
-    let mut config = Config::new(repo_name);
-    config.project_type = project_type;
-    config.run_command = run_command;
-
-    let data = serde_json::to_string(&config).unwrap();
-    match fs::write(file_path.clone(), data) {
-        Ok(_) => {
-            info!("Created configuration file at: {file_path}")
-        }
-        Err(e) => {
-            error!("Failed to create configuration file: {e}")
-        }
-    };
+    let _ = Config::load(String::from(dir_name.unwrap().to_str().unwrap()));
 }
 
 /// .
