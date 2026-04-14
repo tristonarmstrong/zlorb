@@ -1,7 +1,7 @@
 use git2::{BranchType, Cred, Error, FetchOptions, Oid, Remote, RemoteCallbacks, Repository};
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
-use std::{fs, io::Error as IoError, process::Stdio};
+use std::{collections::HashMap, fs, io::Error as IoError, process::{Child, Stdio}};
 use zlorbrs_lib::config::Config;
 
 #[derive(Serialize, Deserialize, Default, Debug)]
@@ -10,23 +10,42 @@ struct ServiceConfig {
 }
 
 fn setup_config_stuff() -> Result<ServiceConfig, ()> {
+    let home_dir = match std::env::var("HOME") {
+        Ok(dir) => dir,
+        Err(_) => std::env::home_dir().unwrap().to_str().unwrap().to_string(),
+    };
+
     let path_to_config_file_for_service = format!(
         "{}/.config/zlorbrs/service-config.json",
-        std::env::home_dir().unwrap().to_str().unwrap()
+        home_dir
     );
 
-    if !fs::exists(&path_to_config_file_for_service).unwrap() {
+    if !fs::exists(&path_to_config_file_for_service).unwrap_or(false) {
         info!("Service config file not found.. creating it now");
+        let parent_dir = std::path::Path::new(&path_to_config_file_for_service).parent().unwrap();
+        let _ = fs::create_dir_all(parent_dir);
+
         let _ = fs::write(
             &path_to_config_file_for_service,
             &serde_json::to_string(&ServiceConfig::default()).unwrap(),
         );
     }
-    let config_file = std::fs::read_to_string(path_to_config_file_for_service).unwrap();
 
-    let config_data = serde_json::from_str::<ServiceConfig>(&config_file)
-        .expect("Failed to convert config file to json string");
-    Ok(config_data)
+    match std::fs::read_to_string(&path_to_config_file_for_service) {
+        Ok(config_file) => {
+            match serde_json::from_str::<ServiceConfig>(&config_file) {
+                Ok(data) => Ok(data),
+                Err(e) => {
+                    error!("Failed to convert config file to json string: {}", e);
+                    Err(())
+                }
+            }
+        }
+        Err(e) => {
+            error!("Failed to read config file: {}", e);
+            Err(())
+        }
+    }
 }
 
 fn main() -> Result<(), IoError> {
@@ -35,6 +54,7 @@ fn main() -> Result<(), IoError> {
     let config_data = setup_config_stuff().expect("Failed to setup configuration stuff");
 
     let mut first_run = true;
+    let mut running_processes: HashMap<String, Child> = HashMap::new();
 
     loop {
         // Handle napping at first run
@@ -86,19 +106,67 @@ fn main() -> Result<(), IoError> {
             debug!("remote iod: {remote_iod}");
             // ======= END ==========
 
-            let dist_dir_exists = match std::fs::read_dir(format!("{}/dist", config_json.path)) {
-                Ok(_) => true,
-                Err(_) => false,
+            let needs_build = match config_json.project_type.as_str() {
+                "bun" => {
+                    let dist_dir_exists = std::fs::read_dir(format!("{}/dist", config_json.path)).is_ok();
+                    !dist_dir_exists || local_iod != remote_iod
+                }
+                "cargo" => {
+                    let target_dir_exists = std::fs::read_dir(format!("{}/target", config_json.path)).is_ok();
+                    !target_dir_exists || local_iod != remote_iod
+                }
+                _ => {
+                    error!("Unknown project type: {}", config_json.project_type);
+                    false
+                }
             };
 
-            if !dist_dir_exists || local_iod != remote_iod {
-                kick_off_build(&config_json);
+            if needs_build {
+                let success = kick_off_build(&config_json);
+                if !success {
+                    error!("Build failed for {}, skipping run command", config_json.name);
+                }
+            }
+
+            // Check if we need to start or restart the background process
+            let should_run = config_json.run_command.is_some();
+            let is_running = running_processes.contains_key(&config_json.name);
+
+            if should_run && (needs_build || !is_running) {
+                if let Some(mut old_process) = running_processes.remove(&config_json.name) {
+                    info!("Killing old process for {}", config_json.name);
+                    let _ = old_process.kill();
+                    let _ = old_process.wait();
+                }
+
+                if let Some(run_cmd) = &config_json.run_command {
+                    info!("Starting run command for {}", config_json.name);
+
+                    let path = config_json.path.clone();
+                    let parts: Vec<&str> = run_cmd.split_whitespace().collect();
+                    if !parts.is_empty() {
+                        let mut command = std::process::Command::new(parts[0]);
+                        command.current_dir(path);
+                        if parts.len() > 1 {
+                            command.args(&parts[1..]);
+                        }
+
+                        match command.spawn() {
+                            Ok(child) => {
+                                running_processes.insert(config_json.name.clone(), child);
+                            }
+                            Err(e) => {
+                                error!("Failed to start run command: {}", e);
+                            }
+                        }
+                    }
+                }
             }
         });
     }
 }
 
-fn kick_off_build(config_json: &Config) {
+fn kick_off_build(config_json: &Config) -> bool {
     info!("Looks like we got some build pending, lets do that!");
     let path = format!("{}", config_json.path);
     debug!("Running build for: {}", config_json.path);
@@ -112,10 +180,23 @@ fn kick_off_build(config_json: &Config) {
                 set_dir_res.err().unwrap(),
                 path
             );
+            return false;
         }
 
-        let build_handle = std::process::Command::new(build_command)
+        let parts: Vec<&str> = build_command.split_whitespace().collect();
+        if parts.is_empty() {
+            error!("Build command is empty");
+            return false;
+        }
+
+        let mut command = std::process::Command::new(parts[0]);
+        if parts.len() > 1 {
+            command.args(&parts[1..]);
+        }
+
+        let build_handle = command
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .output();
 
         match build_handle {
@@ -123,26 +204,30 @@ fn kick_off_build(config_json: &Config) {
                 debug!("got status: {:?}", h.status);
                 match h.status.code() {
                     Some(0) => {
-                        // create util split_to_debug_lines
-                        let human_readable = String::from_utf8(h.stdout).unwrap();
+                        let human_readable = String::from_utf8(h.stdout).unwrap_or_default();
                         let split_readable: Vec<&str> = human_readable.split("\n").collect();
                         for line in split_readable {
-                            info!("build succeed: {:#?}", line);
+                            if !line.is_empty() {
+                                info!("build succeed: {}", line);
+                            }
                         }
+                        true
                     }
-                    Some(1) => {
-                        error!("build error: {:?}", h.stderr);
+                    _ => {
+                        let error_msg = String::from_utf8(h.stderr).unwrap_or_default();
+                        error!("build error: {}", error_msg);
+                        false
                     }
-                    _ => {}
-                };
+                }
             }
             Err(e) => {
-                error!("Total failure of bun_handle: {}", e);
+                error!("Total failure of build command: {}", e);
+                false
             }
-        };
+        }
     });
 
-    handle.join().unwrap();
+    handle.join().unwrap_or(false)
 }
 
 fn take_a_nap(sleep_time: u64) {
@@ -194,7 +279,7 @@ fn fast_forward(repo: &Repository, config_json: &Config) -> Result<(), git2::Err
             .set_target(fetch_commit.id(), "Fast-Forward")
             .unwrap();
         repo.set_head(&refname).unwrap();
-        return repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()));
+        return repo.checkout_head(Some(git2::build::CheckoutBuilder::default().safe()));
     }
 
     error!("Fast-forward only!");
@@ -263,8 +348,8 @@ mod tests {
     fn test_setup_config_stuff_missing() {
         let _env = setup_test_env("svc_config_missing");
 
-        // Do not create the file. setup_config_stuff should fail gracefully.
+        // Do not create the file. setup_config_stuff should automatically create it and succeed.
         let result = setup_config_stuff();
-        assert!(result.is_err());
+        assert!(result.is_ok());
     }
 }
