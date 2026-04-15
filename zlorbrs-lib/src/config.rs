@@ -10,6 +10,14 @@ pub struct Config {
     pub branch: String,        // e.g. main
     pub remote: String,        // e.g. origin
     pub build_command: String, // e.g. npm run build
+    #[serde(default = "default_project_type")]
+    pub project_type: String,  // e.g. bun, cargo
+    #[serde(default)]
+    pub run_command: Option<String>, // e.g. cargo run
+}
+
+fn default_project_type() -> String {
+    "bun".to_string()
 }
 
 impl Config {
@@ -33,6 +41,8 @@ impl Config {
             ),
             remote: String::from("origin"),
             build_command: String::from("bun run build"),
+            project_type: String::from("bun"),
+            run_command: None,
         }
     }
 
@@ -52,7 +62,7 @@ impl Config {
     }
 
     pub fn save(repo_name: String) -> String {
-        info!("Generating configuration file. System assumes Bun build script");
+        info!("Generating configuration file.");
         let directory_path = format!(
             "{}/.config/zlorbrs/configs/{}",
             std::env::home_dir().unwrap().to_str().unwrap(),
@@ -171,6 +181,8 @@ mod tests {
         assert!(!config.branch.is_empty());
         assert_eq!(config.remote, "origin");
         assert_eq!(config.build_command, "bun run build");
+        assert_eq!(config.project_type, "bun");
+        assert_eq!(config.run_command, None);
     }
 
     #[test]
